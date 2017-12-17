@@ -39,6 +39,9 @@ class MetaModelService implements InitializingBean {
 	/** The Grails table store. */
 	Map<String,GrailsTable> tableStore = [:]
 
+	/** The (optional) list of custom enumeration classes to be used as field types. */
+	List<Class> enumClassList = []
+
 	/**
 	 * Spring hook to create table store after service instantiation.
 	 */
@@ -52,6 +55,15 @@ class MetaModelService implements InitializingBean {
 				getTable(grailsDomainClass)
 			}
 		}
+	}
+
+	/**
+	 * Adds recognition of a custom enumeration class to be used as field type.
+	 *
+	 * @param clazz The enumeration class to add.
+	 */
+	void addEnumClass(Class clazz) {
+		this.enumClassList << clazz
 	}
 
 	/**
@@ -431,8 +443,6 @@ class MetaModelService implements InitializingBean {
 		List<GrailsTable> foreignTablePath = getForeignTablePath(field, foreignKeyPath)
 
 		// Construct HQL query
-//		CAUSES EXCEPTION: Conversion failed when converting the varchar value 'CPA|EMEA|Nuremberg|DMZ Zone 1|IPv4|' to data type int
-//		String selectClause = "concat(" + foreignKeyPath.findAll{ !it.foreignKey }.collect{ it.table.shortName.toCamelCase() + "." + it.name }.join(", '${separator}', ") + ") as foreignKeyString"
 		String selectClause =  foreignKeyPath.findAll{ !it.foreignKey }.collect{ it.table.shortName.toCamelCase() + "." + it.name }.join(", ")
 		String fromClause   =  foreignTablePath.collect{ it.shortName + " as " + it.shortName.toCamelCase() }.join(", ")
 		String whereClause  =  foreignKeyPath.findAll{  it.foreignKey }.collect{ it.table.shortName.toCamelCase() + "." + it.name + " = " + it.foreignTable.shortName.toCamelCase() }.join(" and ")
@@ -479,18 +489,18 @@ class MetaModelService implements InitializingBean {
 		// Split provided foreign key value into its element as list of strings
 		// See also: http://jermdemo.blogspot.nl/2009/07/beware-groovy-split-and-tokenize-dont.html
 		List<String> foreignKeyStringValueList = (foreignKeyValueString + separator + "dummy").split(/\${separator}/).dropRight(1) as List<String>
-		
+
 		// Fail if the amount of values does not match the expected foreign key path size (leafs only)
 		if (foreignKeyStringValueList.size() != foreignKeyLeafs.size()) throw new InvalidDataException("The value '" + foreignKeyStringValueList.join("|") + "' of field '${field.name}' should contain ${foreignKeyLeafs.size()} elements")
 
-		// Construct list of the foreign key values (leafs only) matching the corresponding field type 
+		// Construct list of the foreign key values (leafs only) matching the corresponding field type
 		List<Object> foreignKeyValueList = []
 		int i = 0
 		foreignKeyLeafs.each { GrailsField foreignField ->
 			if (foreignKeyStringValueList[i]) {
 //println("JMCK DEBUG 1: " + foreignField.name + "(" + foreignField.type + ") = " + foreignKeyStringValueList[i])
 //				if (foreignField.type == Date) {
-//					foreignKeyValueList << DATE_FORMAT.parse(foreignKeyStringValueList[i]) 
+//					foreignKeyValueList << DATE_FORMAT.parse(foreignKeyStringValueList[i])
 //				} else {
 					foreignKeyValueList << foreignField.type.newInstance(foreignKeyStringValueList[i])
 //				}
@@ -575,9 +585,14 @@ class MetaModelService implements InitializingBean {
 					}
 				} else {
 					// Convert provided string value into the target class type
-					// REMARK: Most native types provide a constructor that creates
-					//         instances based on their string representation.
-					valueConverted = field.type.newInstance(value)
+					Class enumClass = enumClassList.grep { it == field.type }[0]
+					if (enumClass) {
+						// Instantiate value from enumeration
+						valueConverted = enumClass.values().grep { it.name().toUpperCase() == value.toUpperCase() }[0]
+					} else {
+						// Most native types provide a constructor that allows creation of new instances based on their string representation
+						valueConverted = field.type.newInstance(value)
+					}
 				}
 			} else {
 				// A boolean field value being empty in CSVs corresponds to false
@@ -692,8 +707,8 @@ class MetaModelService implements InitializingBean {
 
 	/**
 	 * Inserts, updates or deletes the provided record according the specified modification
-	 * type. The record is provided as a map of strings in which key is the column name.  
-	 * 
+	 * type. The record is provided as a map of strings in which key is the column name.
+	 *
 	 * @param domainClassName The fully qualified package name of the domain class.
 	 * @param rowInput The input row as a map of strings.
 	 * @param recordModificationType The type of modification to apply to this record.

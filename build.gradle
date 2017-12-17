@@ -9,8 +9,8 @@ buildscript {
     }
 }
 
-version "0.3"
-group "meta.model.plugin"
+version "0.4"
+group "com.github.jadenmckey.grails.plugin.metamodel"
 
 apply plugin:"eclipse"
 apply plugin:"idea"
